@@ -136,6 +136,7 @@ save/
 data/race_per_7000/
 data/train
 data/test
+data/con_train_2r/
 *.zip
 
 
