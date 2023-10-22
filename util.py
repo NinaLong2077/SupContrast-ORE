@@ -33,7 +33,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def accuracy(output, target, topk=(1,), class_to_idx=None):
+def accuracy(output, target, topk=(1,), label_to_race_mapping = None):
     """Computes the accuracy over the k top predictions for the specified values of k, and records accuracy by race"""
     with torch.no_grad():
         maxk = max(topk)
@@ -41,25 +41,45 @@ def accuracy(output, target, topk=(1,), class_to_idx=None):
 
         _, pred = output.topk(maxk, 1, True, True)
         pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        target_viewed = target.view(1, -1)
+        target_expand_pred = target_viewed.expand_as(pred)
+
+        correct = pred.eq(target_expand_pred)
+        if label_to_race_mapping: 
+          # print(label_to_race_mapping) 
+          # print(correct)
+
+          # Initialize a dictionary to store correct predictions for each race
+          correct_by_race = {race: 0 for race in label_to_race_mapping.values()}
+          total_by_race = {race: 0 for race in label_to_race_mapping.values()}
 
         res = []
         for k in topk:
             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
+            if label_to_race_mapping: 
+              # Iterate over each label in the batch
+              for i in range(batch_size):
+                  # Get the race corresponding to this label
+                  # print(f"target: {target}")
+                  # print(f"target[i]: {target[i]}")
+                  race = label_to_race_mapping[target[i].item()]
+                  # Increment the total count for this race
+                  total_by_race[race] += 1
+                  # If this label was predicted correctly
+                  if correct[0][i]:
+                      # Increment the count for this race
+                      correct_by_race[race] += 1
+    if label_to_race_mapping: 
 
-        # Record accuracy by race
-        if class_to_idx is not None:
-            race_accuracy = {}
-            for race, idx in class_to_idx.items():
-                race_mask = (target == idx)
-                race_correct = correct_k[race_mask].sum()
-                race_total = race_mask.sum()
-                race_acc = (race_correct * 100.0 / race_total) if race_total > 0 else 0
-                race_accuracy[race] = race_acc
-            return res, race_accuracy
+      # Calculate accuracy for each race
+      accuracy_by_race = {race: correct / total if total > 0 else 0 
+                          for race, correct, total in zip(correct_by_race.keys(), correct_by_race.values(), total_by_race.values())}
 
-        return res
+      return res, accuracy_by_race
+    return res
+
 
 
 

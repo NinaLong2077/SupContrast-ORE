@@ -146,19 +146,26 @@ def set_loader(opt):
 
 
 
+import os
+
 def set_model(opt):
     model = SupConResNet(name=opt.model)
     criterion = torch.nn.CrossEntropyLoss()
 
     classifier = LinearClassifier(name=opt.model, num_classes=opt.n_cls)
 
-    ckpt = torch.load(opt.ckpt, map_location='cpu')
-    state_dict = ckpt['model']
+    # Check if the checkpoint file exists
+    if os.path.isfile(opt.ckpt):
+        ckpt = torch.load(opt.ckpt, map_location='cpu')
+        state_dict = ckpt['model']
+    else:
+        print(f"No checkpoint found at {opt.ckpt}")
+        state_dict = None
 
     if torch.cuda.is_available():
         if torch.cuda.device_count() > 1:
             model.encoder = torch.nn.DataParallel(model.encoder)
-        else:
+        elif state_dict is not None:  # Add this line
             new_state_dict = {}
             for k, v in state_dict.items():
                 k = k.replace("module.", "")
@@ -169,11 +176,15 @@ def set_model(opt):
         criterion = criterion.cuda()
         cudnn.benchmark = True
 
-        model.load_state_dict(state_dict)
+        # Load the state dict only if it is not None
+        if state_dict is not None:
+            model.load_state_dict(state_dict)
+
     else:
         raise NotImplementedError('This code requires GPU')
 
     return model, classifier, criterion
+
 
 
 def train(train_loader, model, classifier, criterion, optimizer, epoch, opt):
@@ -231,30 +242,72 @@ def train(train_loader, model, classifier, criterion, optimizer, epoch, opt):
     return losses.avg, top1.avg
 
 
+def label_to_race(labels, id_to_idx, class_to_race):
+    id_list = labels.tolist() 
+    # print(f"id_list: {id_list}")
+
+    # this is a list of id is the image from, 0 (e.g., 'm.0181j_'), and the remaining 4 images belong to class 1 (e.g., 'm.01lb8z').
+    # id_list: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
+    
+    class_labels = [class_label for idx in id_list for class_label, class_idx in id_to_idx.items() if class_idx == idx] # Get the list of corresponding ids that the images are from
+    # id_list: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
+    # -> Class: ['m.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.01lb8z', 'm.01lb8z', 'm.01lb8z', 'm.01lb8z']
+    races = [class_to_race[class_label] for class_label in class_labels] # Now map the ids to the race from the csv
+    # print(f"Class: {class_labels}")
+    # print(f"Races: {races}")
+    # Create a dictionary mapping labels to their corresponding races
+    label_to_race_mapping = dict(zip(id_list, races))
+    # print(f"Label-to-Race{label_to_race_mapping}")
+
+    return label_to_race_mapping
+
+import csv
 def validate(val_loader, model, classifier, criterion, opt):
     """validation"""
     model.eval()
     classifier.eval()
+    id_to_idx = val_loader.dataset.class_to_idx # map of id to indices in the val set
+    # print(f"id_to_idx: {id_to_idx}")
 
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
+
+    # Read the CSV file and create a mapping from class labels to races
+    class_to_race = {} 
+    with open('./data/linear_prob_dataset_split.csv', 'r') as csvfile:
+        csvreader = csv.DictReader(csvfile)
+        for row in csvreader:
+            class_to_race[row['id']] = row['race']
 
     with torch.no_grad():
         end = time.time()
         for idx, (images, labels) in enumerate(val_loader):
             images = images.float().cuda()
             labels = labels.cuda()
+            labels_to_races = label_to_race(labels, id_to_idx, class_to_race)
+
             bsz = labels.shape[0]
+            # print(f'Batch {idx} - Images: {images.shape}, Labels: {labels.shape}, Batch Size: {bsz}')
 
             # forward
             output = classifier(model.encoder(images))
             loss = criterion(output, labels)
+            # print(f'labels: {labels}')
+
+            # print(f'Output: {output}')
 
             # update metric
             losses.update(loss.item(), bsz)
-            acc1, acc5 = accuracy(output, labels, topk=(1, 5))
-            top1.update(acc1[0], bsz)
+            # acc1, acc5 = accuracy(output, labels, topk=(1, 5))
+            print(f"labels_to_races: {labels_to_races}")
+            acc1, accuracy_by_race = accuracy(output, labels, topk=(1,), label_to_race_mapping = labels_to_races)
+                # accuracy_by_race = {race: correct / total if total > 0 else 0 
+                #         for race, correct, total in zip(correct_by_race.keys(), correct_by_race.values(), total_by_race.values())}
+
+            top1.update(acc1[0][0], bsz)
+            # print(acc1[0][0])
+            print(f"accuracy_by_race: {accuracy_by_race}")
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -265,10 +318,14 @@ def validate(val_loader, model, classifier, criterion, opt):
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                       'Acc@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                       idx, len(val_loader), batch_time=batch_time,
-                       loss=losses, top1=top1))
+                      idx, len(val_loader), batch_time=batch_time,
+                      loss=losses, top1=top1))
+                for race, acc in accuracy_by_race.items():
+                    print(f'Accuracy for {race}: {acc:.3f}')
+
 
     print(' * Acc@1 {top1.avg:.3f}'.format(top1=top1))
+    
     return losses.avg, top1.avg
 
 
@@ -294,7 +351,7 @@ def main():
         loss, acc = train(train_loader, model, classifier, criterion,
                           optimizer, epoch, opt)
         time2 = time.time()
-        print('Train epoch {}, total time {:.2f}, accuracy:{:.2f}'.format(
+        print('Train epoch {}, total time {:.2f}, accuracy: {:.2f}'.format(
             epoch, time2 - time1, acc))
 
         # eval for one epoch
@@ -302,8 +359,16 @@ def main():
         if val_acc > best_acc:
             best_acc = val_acc
 
-    print('best accuracy: {:.2f}'.format(best_acc))
+        # Save checkpoint after each epoch
+        checkpoint = {
+            'epoch': epoch,
+            'state_dict': model.state_dict(),
+            'best_acc': best_acc,
+            'optimizer': optimizer.state_dict(),
+        }
+        torch.save(checkpoint, 'checkpoint_epoch_{}.pth'.format(epoch))
 
+    print('best accuracy: {:.2f}'.format(best_acc))
 
 if __name__ == '__main__':
     main()
