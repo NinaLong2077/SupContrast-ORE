@@ -141,3 +141,4 @@ data/test
 
 .DS_Store
 output/
+*/.DS_Store

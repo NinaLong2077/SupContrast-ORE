@@ -122,25 +122,28 @@ def set_loader(opt):
                         std=[0.5, 0.5, 0.5])
     ])
 
-    train_dataset = datasets.ImageFolder(
-        root=opt.train_folder,
-        transform=train_transform
-    )
+    if opt.train_folder is not None:
+        train_dataset = datasets.ImageFolder(
+            root=opt.train_folder,
+            transform=train_transform
+        )
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=opt.batch_size, shuffle=True,
+            num_workers=opt.num_workers, pin_memory=True)
+    else:
+        train_loader = None
 
     val_dataset = datasets.ImageFolder(
         root=opt.val_folder,
         transform=val_transform
     )
 
-    train_sampler = None
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=opt.batch_size, shuffle=(train_sampler is None),
-        num_workers=opt.num_workers, pin_memory=True, sampler=train_sampler)
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=opt.batch_size, shuffle=(train_sampler is None),
-        num_workers=opt.num_workers, pin_memory=True, sampler=train_sampler)
-    
+        val_dataset, batch_size=opt.batch_size, shuffle=False,
+        num_workers=opt.num_workers, pin_memory=True)
+
     return train_loader, val_loader
+
 
 
 def set_model(opt):
@@ -237,17 +240,12 @@ def validate(val_loader, model, classifier, criterion, opt):
     losses = AverageMeter()
     top1 = AverageMeter()
 
-    asian_acc = []
-
-
     with torch.no_grad():
         end = time.time()
         for idx, (images, labels) in enumerate(val_loader):
             images = images.float().cuda()
             labels = labels.cuda()
             bsz = labels.shape[0]
-
-
 
             # forward
             output = classifier(model.encoder(images))

@@ -33,8 +33,8 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
+def accuracy(output, target, topk=(1,), class_to_idx=None):
+    """Computes the accuracy over the k top predictions for the specified values of k, and records accuracy by race"""
     with torch.no_grad():
         maxk = max(topk)
         batch_size = target.size(0)
@@ -47,7 +47,20 @@ def accuracy(output, target, topk=(1,)):
         for k in topk:
             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
+
+        # Record accuracy by race
+        if class_to_idx is not None:
+            race_accuracy = {}
+            for race, idx in class_to_idx.items():
+                race_mask = (target == idx)
+                race_correct = correct_k[race_mask].sum()
+                race_total = race_mask.sum()
+                race_acc = (race_correct * 100.0 / race_total) if race_total > 0 else 0
+                race_accuracy[race] = race_acc
+            return res, race_accuracy
+
         return res
+
 
 
 def adjust_learning_rate(args, optimizer, epoch):
