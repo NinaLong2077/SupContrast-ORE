@@ -242,7 +242,7 @@ def train(train_loader, model, classifier, criterion, optimizer, epoch, opt):
     return losses.avg, top1.avg
 
 
-def label_to_race(labels, id_to_idx, class_to_race):
+def label_to_race(labels, id_to_idx, id_to_race):
     id_list = labels.tolist() 
     # print(f"id_list: {id_list}")
 
@@ -252,7 +252,7 @@ def label_to_race(labels, id_to_idx, class_to_race):
     class_labels = [class_label for idx in id_list for class_label, class_idx in id_to_idx.items() if class_idx == idx] # Get the list of corresponding ids that the images are from
     # id_list: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
     # -> Class: ['m.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.0181j_', 'm.01lb8z', 'm.01lb8z', 'm.01lb8z', 'm.01lb8z']
-    races = [class_to_race[class_label] for class_label in class_labels] # Now map the ids to the race from the csv
+    races = [id_to_race[class_label] for class_label in class_labels] # Now map the ids to the race from the csv
     # print(f"Class: {class_labels}")
     # print(f"Races: {races}")
     # Create a dictionary mapping labels to their corresponding races
@@ -274,18 +274,18 @@ def validate(val_loader, model, classifier, criterion, opt):
     top1 = AverageMeter()
 
     # Read the CSV file and create a mapping from class labels to races
-    class_to_race = {} 
+    id_to_race = {} 
     with open('./data/linear_prob_dataset_split.csv', 'r') as csvfile:
         csvreader = csv.DictReader(csvfile)
         for row in csvreader:
-            class_to_race[row['id']] = row['race']
+            id_to_race[row['id']] = row['race']
 
     with torch.no_grad():
         end = time.time()
         for idx, (images, labels) in enumerate(val_loader):
             images = images.float().cuda()
             labels = labels.cuda()
-            labels_to_races = label_to_race(labels, id_to_idx, class_to_race)
+            labels_to_races = label_to_race(labels, id_to_idx, id_to_race)
 
             bsz = labels.shape[0]
             # print(f'Batch {idx} - Images: {images.shape}, Labels: {labels.shape}, Batch Size: {bsz}')
