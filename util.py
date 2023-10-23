@@ -31,6 +31,11 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+    def print_values(self):
+        print(f"Value: {self.val}")
+        print(f"Average: {self.avg}")
+        print(f"Sum: {self.sum}")
+        print(f"Count: {self.count}")
 
 
 def initialize_race_dicts(label_to_race_mapping):
@@ -57,30 +62,40 @@ def update_race_dicts(correct, target, label_to_race_mapping, correct_by_race, t
     - correct_by_race: A dictionary to store the count of correct predictions for each race.
     - total_by_race: A dictionary to store the total count of samples for each race.
     """
-    num_rows = target.size(0)
-    num_cols = target.size(1)
+    # print(f"target: {target}")
+    # print(f"correct: {correct}")
+    # print(f"target.size(0): {target.size(0)}")
+    # print(f"correct.size(0): {correct.size(0)}")
+    num_samples = target.size(0)
     
     # Print the tensors as grids before the comparison
     # print_tensor_as_grid(correct, "Correct")
     # print_tensor_as_grid(target, "Target")
     
-    for row_index in range(num_rows):
-        for col_index in range(num_cols):
-            true_label = target[row_index, col_index].item()
-            race = label_to_race_mapping[true_label]
-            
-            # Increment the total count for this race
-            total_by_race[race] += 1
-            # print(f"After processing sample at ({row_index}, {col_index}), total count for {race} is now {total_by_race[race]}")
-            
-            is_correct_prediction = correct[row_index, col_index]
-            
-            # If this label was predicted correctly, increment the count for this race
-            if is_correct_prediction:
-                correct_by_race[race] += 1
-                # print(f"Correct prediction for {race}, correct count is now {correct_by_race[race]}")
+    for sample_index in range(num_samples):
+        true_label = target[sample_index].item()
+        # print(f"true_label: {true_label}")
+
+        race = label_to_race_mapping[true_label]
+        # print(label_to_race_mapping)
+        # print(f"race: {race}")
+        
+        # Increment the total count for this race
+        total_by_race[race] += 1
+        # print(f"total_by_race: {total_by_race}")
+
+        # print(f"After processing sample {sample_index}, total count for {race} is now {total_by_race[race]}")
+        # print(f"correct: {correct}")
+        
+        pred_label = correct[sample_index].item()
+        # print(f"pred_label: {pred_label}")
+        
+        # If this label was predicted correctly, increment the count for this race
+        correct_by_race[race] += pred_label
+        # print(f"Correct prediction for {race}, correct count is now {correct_by_race[race]}")
 
         # print("----")  # Separating lines for better visualization
+
 
 
 def calculate_accuracy_by_race(correct_by_race, total_by_race):
@@ -103,7 +118,8 @@ def calculate_accuracy_by_race(correct_by_race, total_by_race):
 
     for race, correct, total in zipped_data:
         if total > 0:
-            accuracy_by_race[race] = correct / total
+            accuracy = correct * (100.0 / total)
+            accuracy_by_race[race] = accuracy
         else:
             accuracy_by_race[race] = 0
     
@@ -125,18 +141,38 @@ def accuracy(output, target, topk=(1,), label_to_race_mapping=None):
         target_viewed = target.view(1, -1)
         target_expand_pred = target_viewed.expand_as(pred)
 
+
+
         correct = pred.eq(target_expand_pred)
+        # if label_to_race_mapping: 
+
+          # print(f"pred T: {pred}")
+          # print(f"target_viewed: {target_viewed}")
+          # print(f"target_expand_pred: {target_expand_pred}")
+          # print(f"correct: {correct}")
 
         res = []
+        acc_by_race_topk = []
+
         for k in topk:
+            
             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
+            # print(f"correct_k: {correct_k}")
+            average_overall = correct_k.mul_(100.0 / batch_size)
+            # print(f"average_overall: {average_overall}")
+            res.append(average_overall)
 
         if label_to_race_mapping: 
-            correct_by_race, total_by_race = initialize_race_dicts(label_to_race_mapping)
-            update_race_dicts(correct, target, label_to_race_mapping, correct_by_race, total_by_race)
-            accuracy_by_race = calculate_accuracy_by_race(correct_by_race, total_by_race)
-            return res, accuracy_by_race
+            for k in topk:
+              target_expand_k = target_expand_pred[:k].reshape(-1)
+              correct_k = correct[:k].reshape(-1).float()
+              correct_by_race, total_by_race = initialize_race_dicts(label_to_race_mapping)
+              update_race_dicts(correct_k, target_expand_k, label_to_race_mapping, correct_by_race, total_by_race)
+              accuracy_by_race = calculate_accuracy_by_race(correct_by_race, total_by_race)
+              # print(f"accuracy_by_race: {accuracy_by_race}")
+              acc_by_race_topk.append(accuracy_by_race)
+            print(f"acc_by_race_topk: {acc_by_race_topk}")
+            return res, acc_by_race_topk
 
         return res
 

@@ -196,6 +196,8 @@ def train(train_loader, model, classifier, criterion, optimizer, epoch, opt):
     data_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
+    top5 = AverageMeter()
+
 
     end = time.time()
     for idx, (images, labels) in enumerate(train_loader):
@@ -218,6 +220,10 @@ def train(train_loader, model, classifier, criterion, optimizer, epoch, opt):
         losses.update(loss.item(), bsz)
         acc1, acc5 = accuracy(output, labels, topk=(1, 5))
         top1.update(acc1[0], bsz)
+        top5.update(acc5[0],bsz)
+        # print(top1.print_values())
+        # top5.print_values()
+
 
         # SGD
         optimizer.zero_grad()
@@ -272,10 +278,16 @@ def validate(val_loader, model, classifier, criterion, opt):
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
-    asian_am = AverageMeter()
+
     caucasian_am = AverageMeter()
-    african_am = AverageMeter()
     indian_am = AverageMeter()
+
+    asian_am = AverageMeter()
+
+    african_am = AverageMeter()
+
+    race_to_am = {0: ('Caucasian', caucasian_am), 1: ('Indian', indian_am), 2: ('Asian', asian_am), 3: ('African', african_am)}
+
 
     # Read the CSV file and create a mapping from class labels to races
     id_to_race = {} 
@@ -304,14 +316,31 @@ def validate(val_loader, model, classifier, criterion, opt):
             # update metric
             losses.update(loss.item(), bsz)
             # acc1, acc5 = accuracy(output, labels, topk=(1, 5))
-            print(f"labels_to_races: {labels_to_races}")
-            acc1, accuracy_by_race = accuracy(output, labels, topk=(1,), label_to_race_mapping = labels_to_races)
+            # print(f"labels_to_races: {labels_to_races}")
+            acc1, accuracy_by_race = accuracy(output, labels, topk=(1,5), label_to_race_mapping = labels_to_races)
                 # accuracy_by_race = {race: correct / total if total > 0 else 0 
                 #         for race, correct, total in zip(correct_by_race.keys(), correct_by_race.values(), total_by_race.values())}
-
+            accuracy_by_race_1 = accuracy_by_race[0]
+            accuracy_by_race_5 = accuracy_by_race[1]
+            print("Updating meters...")
             top1.update(acc1[0][0], bsz)
+            # print(top1.print_values())
+            # print(top1.avg)
             # print(acc1[0][0])
-            print(f"accuracy_by_race: {accuracy_by_race}")
+
+# race_to_am = {0: ('Caucasian', caucasian_am), 1: ('Indian', indian_am), 2: ('Asian', asian_am), 3: ('African', african_am)}
+
+            # print(f"accuracy_by_race: {accuracy_by_race}")
+            for race, acc in accuracy_by_race_1.items():
+
+                  # print(f"race: {race}")
+                  # print(f"race_to_am: {race_to_am}")
+                  race = int(race)  # Convert race to an integer
+                  name = race_to_am[race][0]
+                  meter = race_to_am[race][1]
+                  # print(name)
+                  meter.update(acc, bsz)
+                  # print(f'{name}@1 {meter.val:.3f} ({meter.avg:.3f})')
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -324,12 +353,13 @@ def validate(val_loader, model, classifier, criterion, opt):
                       'Acc@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
                       idx, len(val_loader), batch_time=batch_time,
                       loss=losses, top1=top1))
-                for race, acc in accuracy_by_race.items():
-                    print(f'Accuracy for {race}: {acc:.3f}')
+                for race, (name, meter) in race_to_am.items():
+                    print(f'{name}@1 {meter.val:.3f} ({meter.avg:.3f})')
 
 
     print(' * Acc@1 {top1.avg:.3f}'.format(top1=top1))
-    
+    for race, (name, meter) in race_to_am.items():
+        print(f' * {name}@1 {meter.avg:.3f}')
     return losses.avg, top1.avg
 
 
